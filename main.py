@@ -53,11 +53,12 @@ for ticker in watchlist:
             score = 0.0
         signal = generate_signal(score)
         converted = (score + 1) / 2 * 20
-        print(title)
-        print("Score: " + str(round(converted, 2)) + "/20")
-        print("Signal: " + signal)
+        print("TICKER: " + ticker)
+        print("HEADLINE: " + title)
+        print("SCORE: " + str(round(converted, 2)) + "/20")
+        print("SIGNAL: " + signal)
         print("---")
-
+        
 for article in articles:
     print(article["title"])
 
