@@ -1,4 +1,4 @@
-import requests
+import requests    # AI-powered sentiment tracker — fetches live financial news and generates BUY/HOLD/SELL signals
 import os
 from dotenv import load_dotenv
 
@@ -9,7 +9,7 @@ load_dotenv()
 API_KEY = os.getenv("NEWS_API_KEY")
 
 analyser = pipeline("text-classification", model="mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis")
-
+# Converts sentiment score to trading signal on a 0-20 scale
 def generate_signal(vader_score):
     converted = (vader_score + 1) / 2 * 20
 
@@ -33,7 +33,15 @@ def fetch_news(ticker):
     }
     response = requests.get(url, params=params)
     articles = response.json()["articles"]
-    return articles
+    seen = []
+    unique = []
+    for article in articles:
+        if article["title"] not in seen:
+            seen.append(article["title"])
+            unique.append(article)
+    return unique
+
+# Selected stocks being tracked
 
 watchlist = ["AAPL", "TSLA", "MSFT", "GOOGL", "AMZN"]
 
