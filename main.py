@@ -73,23 +73,43 @@ for ticker in watchlist:
     articles = fetch_news(ticker) + fetch_yahoo_news(ticker)
     scores = []
     for article in articles:
-        title = article["title"]
-        result = analyser(title)[0]
-        label = result["label"]
-        confidence = result["score"]
-        if label == "positive":
-            score = confidence
-        elif label == "negative":
-            score = -confidence
-        else:
-            score = 0.0
+    
+     title = article.get("title", "")
+    description = article.get("description", "")
 
-        source = article["source"]["id"]
+    result_title = analyser(title)[0]
+    label_t = result_title["label"]
+    conf_t = result_title["score"]
+
+    if label_t == "positive":
+        score_title = conf_t
+    elif label_t == "negative":
+        score_title = -conf_t
+    else:
+        score_title = 0.0
+
+    if description:
+        result_desc = analyser(description)[0]
+        label_d = result_desc["label"]
+        conf_d = result_desc["score"]
+        if label_d == "positive":
+            score_desc = conf_d
+        elif label_d == "negative":
+            score_desc = -conf_d
+        else:
+            score_desc = 0.0
+        score = (score_title + score_desc) / 2
+    else:
+        score = score_title
+
+
+        source = article.get("source", {}).get("id", "")
         weight = source_weights.get(source, 1.0)
         score = score * weight
     
-        scores.append(score)
-        average = sum(scores) / len(scores)
+
+    scores.append(score)
+    average = sum(scores) / len(scores)
     converted = (average + 1) / 2 * 20
     signal = generate_signal(average)
     print("TICKER: " + ticker)
