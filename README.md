@@ -1,2 +1,3 @@
 # NLP-sentiment-tracker
 Python code to track and analyse headlines and media pieces to track sentiments in the market to indicate towards higher potential returning areas and stocks.
+problems - FINbert has a problem understanding some lamgauge. Example, it rated a strong buy for the quote "WWDC keynote unlikely to be positive catalyst for APPLE stock" giving it a score of 19.88/20 as a strong buy even though in reality it has a negative connotation.

@@ -1,7 +1,7 @@
 import requests    # AI-powered sentiment tracker — fetches live financial news and generates BUY/HOLD/SELL signals
 import os
 from dotenv import load_dotenv
-
+import yfinance as yf
 from transformers import pipeline
 
 load_dotenv()
@@ -32,7 +32,8 @@ def fetch_news(ticker):
         "apiKey": API_KEY
     }
     response = requests.get(url, params=params)
-    articles = response.json()["articles"]
+    data = response.json()
+    articles = data.get("articles", [])
     seen = []
     unique = []
     for article in articles:
@@ -41,13 +42,36 @@ def fetch_news(ticker):
             unique.append(article)
     return unique
 
+
+def fetch_yahoo_news(ticker):
+    stock = yf.Ticker(ticker)
+    news = stock.news
+    articles = []
+    for item in news[:5]:
+        if "title" in item.get("content", {}):
+            articles.append({"title": item["content"]["title"]})
+    return articles
+    
+
+
+
 # Selected stocks being tracked
 
 watchlist = ["AAPL", "TSLA", "MSFT", "GOOGL", "AMZN"]
 
+source_weights = {
+    "reuters.com": 1.5,
+    "bloomberg.com": 1.5,
+    "ft.com": 1.4,
+    "wsj.com": 1.3,
+    "cnbc.com": 1.2,
+    "bbc.co.uk": 1.1
+}
+
 for ticker in watchlist:
     print("=== " + ticker + " ===")
-    articles = fetch_news(ticker)
+    articles = fetch_news(ticker) + fetch_yahoo_news(ticker)
+    scores = []
     for article in articles:
         title = article["title"]
         result = analyser(title)[0]
@@ -59,16 +83,22 @@ for ticker in watchlist:
             score = -confidence
         else:
             score = 0.0
-        signal = generate_signal(score)
-        converted = (score + 1) / 2 * 20
-        print("TICKER: " + ticker)
-        print("HEADLINE: " + title)
-        print("SCORE: " + str(round(converted, 2)) + "/20")
-        print("SIGNAL: " + signal)
-        print("---")
-        
-for article in articles:
-    print(article["title"])
+
+        source = article["source"]["id"]
+        weight = source_weights.get(source, 1.0)
+        score = score * weight
+    
+        scores.append(score)
+        average = sum(scores) / len(scores)
+    converted = (average + 1) / 2 * 20
+    signal = generate_signal(average)
+    print("TICKER: " + ticker)
+    print("AVERAGE SCORE: " + str(round(converted, 2)) + "/20")
+    print("SIGNAL: " + signal)
+    print("---")
+
+
+
 
 from transformers import pipeline
 analyser = pipeline("text-classification", model="ProsusAI/finbert")
@@ -92,10 +122,8 @@ for article in articles:
     signal = generate_signal(score) 
     converted = (score + 1) / 2 * 20
     print(title)
-    print("Score: " + str(round(converted, 2)) + "/20")
+    print("score: " + str(round(converted, 2)) + "/20")
     print("signal: " + signal)
     print("---")
-
-
 
 
