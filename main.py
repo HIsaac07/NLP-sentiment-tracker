@@ -3,10 +3,15 @@ import os
 from dotenv import load_dotenv
 import yfinance as yf
 from transformers import pipeline
+import os
+import feedparser
+os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN", "")
+
 
 load_dotenv()
 
 API_KEY = os.getenv("NEWS_API_KEY")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 analyser = pipeline("text-classification", model="mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis")
 # Converts sentiment score to trading signal on a 0-20 scale
@@ -22,6 +27,14 @@ def generate_signal(vader_score):
     else:
         return "BUY"
 
+company_names = {
+    "AAPL": "apple",
+    "TSLA": "tesla",
+    "MSFT": "microsoft",
+    "GOOGL": "google",
+    "AMZN": "amazon"
+}
+
 def fetch_news(ticker):
     url = "https://newsapi.org/v2/everything"
     params = {
@@ -34,6 +47,8 @@ def fetch_news(ticker):
     response = requests.get(url, params=params)
     data = response.json()
     articles = data.get("articles", [])
+    company = company_names.get(ticker, ticker.lower())
+    articles = [a for a in articles if company in a.get("title", "").lower() or ticker.lower() in a.get("title", "").lower()]
     seen = []
     unique = []
     for article in articles:
@@ -49,9 +64,27 @@ def fetch_yahoo_news(ticker):
     articles = []
     for item in news[:5]:
         if "title" in item.get("content", {}):
-            articles.append({"title": item["content"]["title"]})
+            title = item["content"]["title"]
+            company = company_names.get(ticker, ticker.lower())
+            if company in title.lower() or ticker.lower() in title.lower():
+                articles.append({"title": title})
     return articles
-    
+
+
+def fetch_rss_news(ticker):
+    feeds = [
+        f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}",
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://www.cnbc.com/id/10001147/device/rss/rss.html"
+    ]
+    articles = []
+    for url in feeds:
+        feed = feedparser.parse(url)
+        for entry in feed.entries[:3]:
+            company = company_names.get(ticker, ticker.lower())
+            if company in entry.title.lower() or ticker.lower() in entry.title.lower():
+                articles.append({"title": entry.title, "description": entry.get("summary", "")})
+    return articles
 
 
 
@@ -68,82 +101,50 @@ source_weights = {
     "bbc.co.uk": 1.1
 }
 
-for ticker in watchlist:
-    print("=== " + ticker + " ===")
-    articles = fetch_news(ticker) + fetch_yahoo_news(ticker)
-    scores = []
-    for article in articles:
-    
-     title = article.get("title", "")
-    description = article.get("description", "")
-
-    result_title = analyser(title)[0]
-    label_t = result_title["label"]
-    conf_t = result_title["score"]
-
-    if label_t == "positive":
-        score_title = conf_t
-    elif label_t == "negative":
-        score_title = -conf_t
-    else:
-        score_title = 0.0
-
-    if description:
-        result_desc = analyser(description)[0]
-        label_d = result_desc["label"]
-        conf_d = result_desc["score"]
-        if label_d == "positive":
-            score_desc = conf_d
-        elif label_d == "negative":
-            score_desc = -conf_d
-        else:
-            score_desc = 0.0
-        score = (score_title + score_desc) / 2
-    else:
-        score = score_title
-
-
-        source = article.get("source", {}).get("id", "")
-        weight = source_weights.get(source, 1.0)
-        score = score * weight
-    
-
-    scores.append(score)
-    average = sum(scores) / len(scores)
-    converted = (average + 1) / 2 * 20
-    signal = generate_signal(average)
-    print("TICKER: " + ticker)
-    print("AVERAGE SCORE: " + str(round(converted, 2)) + "/20")
-    print("SIGNAL: " + signal)
-    print("---")
-
-
-
 
 from transformers import pipeline
 analyser = pipeline("text-classification", model="ProsusAI/finbert")
 
+cache = {}
+for ticker in watchlist:
+    news_articles = fetch_news(ticker) or []
+    yahoo_articles = fetch_yahoo_news(ticker) or []
+    rss_articles = fetch_rss_news(ticker) or []
+    cache[ticker] = news_articles + yahoo_articles + rss_articles
 
-for article in articles:
-    title = article["title"]
-    result = analyser(title)[0]
-    label = result["label"]
-    confidence = result["score"]
-   
-    if label == "positive":
-        score = confidence
-  
-    elif label == "negative":
-        score = -confidence
-  
-    else:
-        score = 0.0
-    
-    signal = generate_signal(score) 
-    converted = (score + 1) / 2 * 20
-    print(title)
-    print("score: " + str(round(converted, 2)) + "/20")
-    print("signal: " + signal)
-    print("---")
 
+for ticker in watchlist:
+    print("=== " + ticker + " ===")
+    articles = cache[ticker]
+    scores = []
+    for article in articles:
+        title = article.get("title", "")
+        if not title:
+            continue
+        result = analyser(title)[0]
+        label = result["label"]
+        confidence = result["score"]
+        if label == "positive":
+            score = confidence
+        elif label == "negative":
+            score = -confidence
+        else:
+            score = 0.0
+        source = article.get("source", {}).get("id", "")
+        weight = source_weights.get(source, 1.0)
+        score = score * weight
+        score = max(-0.8, min(0.8, score))
+        scores.append(score)
+        print(title)
+        print("score: " + str(round((score + 1) / 2 * 20, 2)) + "/20")
+        print("signal: " + generate_signal(score))
+        print("---")
+    if scores:
+        average = sum(scores) / len(scores)
+        converted = (average + 1) / 2 * 20
+        signal = generate_signal(average)
+        print("TICKER: " + ticker)
+        print("AVERAGE SCORE: " + str(round(converted, 2)) + "/20")
+        print("SIGNAL: " + signal)
+        print("===")
 
