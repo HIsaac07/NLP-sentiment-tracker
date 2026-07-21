@@ -1,22 +1,27 @@
-import requests    # AI-powered sentiment tracker — fetches live financial news and generates BUY/HOLD/SELL signals
 import os
+import requests    # AI-powered sentiment tracker — fetches live financial news and generates BUY/HOLD/SELL signals
 from dotenv import load_dotenv
 import yfinance as yf
-from transformers import pipeline
-import os
 import feedparser
-os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN", "")
 
-
+# Load environment variables from .env first
 load_dotenv()
 
+os.environ["HUGGINGFACE_HUB_TOKEN"] = os.getenv("HF_TOKEN", "")
+
+# Required keys (may be empty if not set)
 API_KEY = os.getenv("NEWS_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-analyser = pipeline("text-classification", model="mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis")
+# If a Hugging Face token is provided, export it so transformers can use it.
+if HF_TOKEN:
+    os.environ["HF_TOKEN"] = HF_TOKEN
+else:
+    print("Warning: HF_TOKEN not set. Using unauthenticated HF Hub (rate-limited).")
+
 # Converts sentiment score to trading signal on a 0-20 scale
-def generate_signal(vader_score):
-    converted = (vader_score + 1) / 2 * 20
+def generate_signal(sentiment_score):
+    converted = (sentiment_score + 1) / 2 * 20
 
 
 
@@ -29,26 +34,41 @@ def generate_signal(vader_score):
 
 company_names = {
     "AAPL": "apple",
-    "TSLA": "tesla",
     "MSFT": "microsoft",
     "GOOGL": "google",
+    "TSLA": "tesla",
     "AMZN": "amazon"
 }
 
+company_queries = {
+    "AAPL": '"Apple stock"',
+    "MSFT": '"Microsoft stock"',
+    "GOOGL": '"Alphabet stock" OR "Google stock"',
+    "TSLA": '"Tesla stock"',
+    "AMZN": '"Amazon stock"'
+}
+
 def fetch_news(ticker):
+    # Use NewsAPI if API key is available; otherwise skip and return empty list.
+    if not API_KEY:
+        print(f"Warning: NEWS_API_KEY not set — skipping NewsAPI for {ticker}.")
+        return []
+
     url = "https://newsapi.org/v2/everything"
     params = {
-        "q": ticker + " stock earnings OR revenue OR profit OR loss",
+        "q": company_queries[ticker],
         "language": "en",
         "sortBy": "publishedAt",
-        "pageSize": 5,
+        "pageSize": 10,
         "apiKey": API_KEY
     }
     response = requests.get(url, params=params)
-    data = response.json()
+    try:
+        data = response.json()
+    except Exception:
+        print("Warning: failed to parse NewsAPI response JSON")
+        return []
     articles = data.get("articles", [])
-    company = company_names.get(ticker, ticker.lower())
-    articles = [a for a in articles if company in a.get("title", "").lower() or ticker.lower() in a.get("title", "").lower()]
     seen = []
     unique = []
     for article in articles:
@@ -56,6 +76,8 @@ def fetch_news(ticker):
             seen.append(article["title"])
             unique.append(article)
     return unique
+
+        
 
 
 def fetch_yahoo_news(ticker):
@@ -103,7 +125,14 @@ source_weights = {
 
 
 from transformers import pipeline
-analyser = pipeline("text-classification", model="ProsusAI/finbert")
+
+# Initialize the transformer classifier with a friendly error if it fails
+try:
+    analyser = pipeline("text-classification", model="ProsusAI/finbert")
+except Exception as e:
+    print("Error initializing transformer pipeline:", str(e))
+    print("The script will continue but sentiment classification may fail.")
+    analyser = None
 
 cache = {}
 for ticker in watchlist:
@@ -122,6 +151,7 @@ for ticker in watchlist:
         if not title:
             continue
         result = analyser(title)[0]
+        print("DEBUG: " + title[:50] + " | " + result["label"] + " | " + str(result["score"]))
         label = result["label"]
         confidence = result["score"]
         if label == "positive":
